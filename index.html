@@ -2816,6 +2816,8 @@
   }
 
 
+  /* Pinning removed: menu rows no longer reserve space for a pin star */
+  .nv-row .nv-link { padding-right: 10px; }
 </style>
 </head>
 <body data-view="franchise">
@@ -4874,6 +4876,7 @@ const ICON_PATHS = {
   chevL:     '<polyline points="15 18 9 12 15 6"/>',
   alertTri:  '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
   alertOct:  '<polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+  layers:    '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
   search:    '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
   layout:    '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>',
   note:      '<path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3z"/><path d="M15 3v6h6"/><line x1="7" y1="13" x2="15" y2="13"/><line x1="7" y1="17" x2="12" y2="17"/>',
@@ -5052,7 +5055,6 @@ const WS = {
   query: '',
   rail: false,
   expanded: new Set(),
-  pins: [],
   recent: []
 };
 
@@ -5213,15 +5215,20 @@ function sec(title, extra) {
 function linkRow(key, label, icon, q, opts) {
   opts = opts || {};
   const active = WS.current === key;
-  const pinned = WS.pins.includes(key);
   const iconHtml = opts.iconHtml || (opts.dot ? '<span class="nv-dot"></span>' : '<span class="nv-ic">' + ico(icon) + '</span>');
   return `<div class="nv-row"${opts.color ? ` style="--app:${opts.color}"` : ''}>
     <a class="nv-link${active ? ' active' : ''}" href="#/${key}" title="${escapeHtml(opts.title || label)}"${active ? ' aria-current="page"' : ''}>
       ${iconHtml}
       <span class="nv-label">${hl(label, q)}${opts.meta ? '<small class="nv-meta">' + escapeHtml(opts.meta) + '</small>' : ''}</span>
     </a>
-    ${opts.noPin ? '' : `<button type="button" class="nv-pin${pinned ? ' on' : ''}" data-pin="${key}" title="${pinned ? 'Unpin' : 'Pin to top'}" aria-label="${pinned ? 'Unpin' : 'Pin'} ${escapeHtml(label)}" aria-pressed="${pinned}">${ico('star', 14, pinned)}</button>`}
   </div>`;
+}
+
+const SHARED_COLOR = '#0EA5E9';
+function sharedItemsHtml(q) {
+  const all = !!q && 'shared across apps'.includes(q);
+  return WS_SHARED.filter(s => !q || all || s.label.toLowerCase().includes(q))
+    .map(s => linkRow('shared/' + s.id, s.label, s.icon, q)).join('');
 }
 
 function moreRow(m, q) {
@@ -5278,21 +5285,25 @@ function renderNav() {
   let h = '';
 
   if (!q) {
-    h += sec('Home') + linkRow('home', 'Home', 'home', '', { noPin: true, title: 'Home — all apps overview' });
-    const pins = WS.pins.filter(k => WS_ROUTES[k]);
-    if (pins.length) {
-      h += '<div class="nv-pins">' +
-        sec('Pinned', '<button type="button" class="nv-sec-btn" data-clear-pins>Clear</button>') +
-        pins.map(k => {
-          const r = WS_ROUTES[k];
-          return linkRow(k, r.label, r.icon, '', { meta: routeAppName(r), color: routeColor(r) });
-        }).join('') +
-        '</div>';
-    }
+    h += sec('Home') + linkRow('home', 'Home', 'home', '', { title: 'Home — all apps overview' });
   }
 
-  const shared = WS_SHARED.filter(s => !q || s.label.toLowerCase().includes(q));
-  if (shared.length) h += sec('Shared across apps') + shared.map(s => linkRow('shared/' + s.id, s.label, s.icon, q)).join('');
+  // Shared across apps: one collapsible group (collapsed by default) holding the pages every app shares
+  const sharedMatch = !!q && 'shared across apps'.includes(q);
+  const shared = WS_SHARED.filter(s => !q || sharedMatch || s.label.toLowerCase().includes(q));
+  if (shared.length) {
+    const open = !!q || WS.expanded.has('shared');
+    const hasActive = WS.current.indexOf('shared/') === 0;
+    h += sec('Shared') + `<div class="nv-app${open ? ' open' : ''}${hasActive ? ' has-active' : ''}" data-app="shared" style="--app:${SHARED_COLOR}">
+      <button type="button" class="nv-app-head" data-toggle="shared" data-flyout="shared" aria-expanded="${open}" title="Shared across apps">
+        <span class="nv-app-ic">${ico('layers', 16)}</span>
+        <span class="nv-label">${hl('Shared across apps', q)}</span>
+        <span class="nv-count">${WS_SHARED.length}</span>
+        <span class="nv-chev">${ico('chevR', 14)}</span>
+      </button>
+      <div class="nv-app-body"><div class="nv-inner">${sharedItemsHtml(q)}</div></div>
+    </div>`;
+  }
 
   const groups = WS_APPS.map(a => appGroupHtml(a, q)).join('');
   const more = WS_MORE.filter(m => !q || m.name.toLowerCase().includes(q));
@@ -5333,7 +5344,7 @@ function toggleExpanded(key, el) {
 }
 
 function setAllExpanded(open) {
-  const keys = ['more'];
+  const keys = ['more', 'shared'];
   WS_APPS.forEach(a => {
     keys.push(a.id);
     a.items.forEach(it => { if (it.children) keys.push(a.id + '/' + it.id); });
@@ -5341,17 +5352,6 @@ function setAllExpanded(open) {
   keys.forEach(k => open ? WS.expanded.add(k) : WS.expanded.delete(k));
   wsStore('expanded', Array.from(WS.expanded));
   renderNav();
-}
-
-function togglePin(key) {
-  const r = WS_ROUTES[key];
-  if (!r) return;
-  const idx = WS.pins.indexOf(key);
-  if (idx > -1) WS.pins.splice(idx, 1); else WS.pins.push(key);
-  wsStore('pins', WS.pins);
-  renderNav();
-  renderPage();
-  showToast(idx > -1 ? r.label + ' unpinned.' : r.label + ' pinned to the top of the menu.', idx > -1 ? 'warning' : 'success', 2200);
 }
 
 /* Rail (collapsed) + mobile drawer */
@@ -5400,11 +5400,15 @@ function openFlyout(id, anchor, viaKeyboard) {
   if (fly.classList.contains('open') && fly.dataset.app === id) { closeFlyout(); return; }
   closeFlyout();
   const app = WS_APPS.find(a => a.id === id);
+  const isShared = id === 'shared';
   fly.dataset.app = id;
-  fly.style.setProperty('--app', app ? app.color : '#64748B');
+  fly.style.setProperty('--app', app ? app.color : isShared ? SHARED_COLOR : '#64748B');
+  const headIc = app ? appIconHtml(app) : ico(isShared ? 'layers' : 'apps', 16);
+  const title = app ? app.name : isShared ? 'Shared across apps' : 'More apps';
+  const items = app ? appItemsHtml(app, '') : isShared ? sharedItemsHtml('') : WS_MORE.map(m => moreRow(m, '')).join('');
   fly.innerHTML =
-    `<div class="ws-fly-head"><span class="nv-app-ic"${app ? ` data-ini="${initials(app.name)}"` : ''}>${app ? appIconHtml(app) : ico('apps', 16)}</span>${escapeHtml(app ? app.name : 'More apps')}</div>` +
-    `<div class="ws-fly-list"><div class="ws-fly-inner">${app ? appItemsHtml(app, '') : WS_MORE.map(m => moreRow(m, '')).join('')}</div></div>`;
+    `<div class="ws-fly-head"><span class="nv-app-ic"${app ? ` data-ini="${initials(app.name)}"` : ''}>${headIc}</span>${escapeHtml(title)}</div>` +
+    `<div class="ws-fly-list"><div class="ws-fly-inner">${items}</div></div>`;
   fly.classList.add('open');
   FLY.anchor = anchor;
   positionFlyout();
@@ -5444,16 +5448,6 @@ function closeFlyout() {
 
 /* Sidebar interactions (event delegation covers the sidebar, flyout and page) */
 document.getElementById('workspaceView').addEventListener('click', e => {
-  const pin = e.target.closest('[data-pin]');
-  if (pin) { e.preventDefault(); togglePin(pin.dataset.pin); return; }
-
-  if (e.target.closest('[data-clear-pins]')) {
-    WS.pins = [];
-    wsStore('pins', WS.pins);
-    renderNav(); renderPage();
-    return;
-  }
-
   const fl = e.target.closest('[data-flyout]');
   if (fl && isRail() && fl.closest('.ws-side')) { openFlyout(fl.dataset.flyout, fl, e.detail === 0); return; }
 
@@ -5558,7 +5552,7 @@ stripHrefs(document.body);
 
 document.addEventListener('click', e => {
   const el = e.target.closest && e.target.closest('[data-route]');
-  if (!el || e.target.closest('[data-h], [data-pin]')) return;
+  if (!el || e.target.closest('[data-h]')) return;
   e.preventDefault();
   if (HOME.editing && el.closest('#hmHome')) return;   // customizing: tiles don't navigate
   go(el.dataset.route);
@@ -5582,6 +5576,7 @@ function navigate(key) {
     if (r.parent) WS.expanded.add(r.app.id + '/' + r.parent.id);
   }
   if (r.more) WS.expanded.add('more');
+  if (r.shared) WS.expanded.add('shared');
   wsStore('expanded', Array.from(WS.expanded));
   if (key !== 'home') {
     WS.recent = [key].concat(WS.recent.filter(k => k !== key)).slice(0, 6);
@@ -5613,7 +5608,6 @@ function renderPage() {
 function pageHtml(r) {
   const color = routeColor(r);
   const appName = routeAppName(r);
-  const pinned = WS.pins.includes(r.key);
   const sep = '<span class="sep">' + ico('chevR', 12) + '</span>';
 
   let crumbs = `<a href="#/home">${escapeHtml(WS.franchise ? WS.franchise.name : 'Home')}</a>`;
@@ -5632,9 +5626,6 @@ function pageHtml(r) {
       <div class="pg-head-l">
         <nav class="crumbs" aria-label="Breadcrumb">${crumbs}</nav>
         <div class="pg-title"><h1>${escapeHtml(r.label)}</h1>${chip}</div>
-      </div>
-      <div class="pg-actions">
-        <button type="button" class="pg-btn${pinned ? ' on' : ''}" data-pin="${r.key}" aria-pressed="${pinned}">${ico('star', 14, pinned)} ${pinned ? 'Pinned' : 'Pin to menu'}</button>
       </div>
     </div>`;
 
@@ -5754,7 +5745,6 @@ const WIDGET_TYPES = {
   shortcuts: { name: 'Shortcut group',     icon: 'zap',      sizes: [3, 4, 6, 8, 12],  def: 6,  settings: true },
   apps:      { name: 'App launcher',       icon: 'apps',     sizes: [6, 8, 12],        def: 12, settings: true },
   chart:     { name: 'Trend chart',        icon: 'trendUp',  sizes: [4, 6, 8, 12],     def: 6,  settings: true },
-  pinned:    { name: 'Pinned pages',       icon: 'star',     sizes: [3, 4, 6],         def: 3,  settings: true },
   recent:    { name: 'Recently visited',   icon: 'history',  sizes: [3, 4, 6],         def: 3,  settings: true },
   note:      { name: 'Sticky note',        icon: 'note',     sizes: [3, 4, 6],         def: 3,  settings: true },
   alerts:    { name: 'Alerts',             icon: 'bell',     sizes: [6, 8, 12],        def: 12, settings: true }
@@ -5783,16 +5773,15 @@ function defaultHomeLayout() {
       ]})
     ]},
     { id: hid(), title: 'My workspace', icon: 'star', color: '#8B5CF6', widgets: [
-      W('pinned', 4, { count: 5 }),
-      W('recent', 4, { count: 5 }),
-      W('note', 4, { title: 'Today’s notes', color: 'yellow', text: '• Review labor variance before 11 AM\n• Approve pending time-off requests\n• Place the weekly produce order\n• Check waste log after close' }),
+      W('recent', 6, { count: 5 }),
+      W('note', 6, { title: 'Today’s notes', color: 'yellow', text: '• Review labor variance before 11 AM\n• Approve pending time-off requests\n• Place the weekly produce order\n• Check waste log after close' }),
     ]},
     { id: hid(), title: 'Your apps', icon: 'apps', color: '#14B8A6', widgets: [
       W('apps', 12, { apps: WS_APPS.map(a => a.id) })
     ]}
   ]};
 }
-const HOME_LAYOUT_VERSION = 6;   // bump when the default layout changes, so everyone gets the new default
+const HOME_LAYOUT_VERSION = 7;   // bump when the default layout changes, so everyone gets the new default
 
 const HOME = {
   layout: null, draft: null, editing: false,
@@ -5974,7 +5963,6 @@ function newWidgetFromSpec(spec) {
     case 'shortcuts': return W('shortcuts', 6, { title: 'Shortcuts', items: [] });
     case 'apps':      return W('apps', 12, { apps: WS_APPS.map(a => a.id) });
     case 'note':      return W('note', 3, { title: 'Note', text: '', color: NOTE_COLORS[0] });
-    case 'pinned':
     case 'recent':    return W(type, 3, { count: 5 });
     case 'alerts':    return W('alerts', 12, { count: 6 });
     default:          return W(type);
@@ -6064,7 +6052,6 @@ function homeHtml() {
           <h1>${greeting()}, <span>${escapeHtml(WS_USER)}</span></h1>
           <div class="h4-stats">
             <span class="h4-stat">${ico('apps', 15)}<b>${WS_APPS.length + WS_MORE.length}</b> apps</span>
-            <span class="h4-stat">${ico('star', 15)}<b>${WS.pins.filter(k => WS_ROUTES[k]).length}</b> pinned</span>
             <span class="h4-stat">${ico('bell', 15)}<b>${activeAlerts().filter(a => a.sev === 'critical').length}</b> critical alerts</span>
             ${last ? `<a class="h4-continue" href="#/${last}" title="Continue where you left off">Continue: ${escapeHtml(WS_ROUTES[last].label)}${ico('arrowR', 14)}</a>` : ''}
           </div>
@@ -6189,8 +6176,6 @@ function widgetBody(w, ed) {
     case 'shortcuts': return shortcutsHtml(w, ed);
     case 'apps':      return appsWidgetHtml(w, ed);
     case 'chart':     return chartHtml(w, ed);
-    case 'pinned':    return listWidgetHtml(w, ed, 'Pinned pages', WS.pins,
-                        `Hover any menu item and click ${ico('star', 13)} to pin it here.`);
     case 'recent':    return listWidgetHtml(w, ed, 'Recently visited', WS.recent, 'Pages you open will appear here.');
     case 'note':      return noteHtml(w, ed);
     case 'alerts':    return alertsHtml(w, ed);
@@ -6684,7 +6669,6 @@ function renderGalleryBody() {
     'Critical, warning and info alerts from all your apps, each with a quick action.', '#EF4444') : '';
 
   const lists =
-    (hit('pinned pages favourites favorites star') ? item('pinned', ico('star', 18), 'Pinned pages', 'Pages you starred in the sidebar.') : '') +
     (hit('recently visited history') ? item('recent', ico('history', 18), 'Recently visited', 'The last pages you opened.') : '');
 
   const personal =
@@ -7122,8 +7106,6 @@ document.getElementById('appGrid').addEventListener('click', e => {
   buildRoutes();
   loadHome();
   WS.expanded = new Set();   // menu sections always start collapsed
-  // First visit: start with a few useful pins so the sidebar and Pinned widget aren't empty
-  WS.pins = wsLoad('pins', null) || ['schedule/schedule', 'clock/punch-management', 'inventory/waste', 'ordering/ordering'];
   WS.recent = wsLoad('recent', []);
   WS.rail = true;   // desktop menu starts as the icon strip; expanding overlays the page
 
